@@ -1,3 +1,1 @@
-BlockOne repo
-
-- test
+Encrypted Decentralized Inference and Learning Framework
