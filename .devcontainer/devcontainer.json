@@ -1,0 +1,23 @@
+{
+  "name" : "EDIL Dev Container",
+  // "dockerFile" : "Dockerfile",
+  "image": "aidamian/ds101_2024",
+
+  "runArgs": [
+    // "--gpus=all",
+    "--hostname",
+    "edil-dev",
+    "--name",
+    "edil-dev"  
+  ],
+
+
+  "customizations": {
+    "vscode" : {
+      "extensions": [
+        "ms-python.python",
+        "ms-toolsai.jupyter"
+      ]
+    }
+  }
+}
