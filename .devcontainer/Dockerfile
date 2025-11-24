@@ -1,5 +1,5 @@
 # Use the latest PyTorch base image
-FROM pytorch/pytorch:latest
+FROM pytorch/pytorch:2.9.1-cuda13.0-cudnn9-runtime
 
 # Install system dependencies in a single RUN command to reduce image layers
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -8,20 +8,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     less \
     curl \
     wget \
-    nodejs \
-    npm \
     unzip \
     nano && \
     rm -rf /var/lib/apt/lists/*
 
-# Install Python dependencies
-RUN conda install -y \
-    pandas \
-    jupyter \
-    matplotlib \
-    seaborn \
-    scikit-learn && \
-    conda clean --all -y
+
 
 RUN pip install --no-cache-dir \
     fastapi \
@@ -30,4 +21,10 @@ RUN pip install --no-cache-dir \
     jinja2
 
 
-RUN npm install -g npm@latest @openai/codex    
+RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends nodejs \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
+
+RUN npm install -g @openai/codex    

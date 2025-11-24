@@ -1,12 +1,14 @@
 {
   "name" : "EDIL Dev Container",
-  // "dockerFile" : "Dockerfile",
-  "image": "aidamian/ds101_2024",
+  "dockerFile" : "Dockerfile",
+  // "image": "aidamian/ds101_2024",
 
   "runArgs": [
-    // "--gpus=all",
+    "--gpus=all",
+    
     "--hostname",
     "edil-dev",
+
     "--name",
     "edil-dev"  
   ],
@@ -20,4 +22,3 @@
       ]
     }
   }
-}
