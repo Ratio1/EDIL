@@ -12,9 +12,35 @@ import os
 from edil.base import EDILBase
 
 def th_tensor_size(t):
+  """
+  Compute size in bytes of a single tensor.
+
+  Parameters
+  ----------
+  t : torch.Tensor
+      Tensor to measure.
+
+  Returns
+  -------
+  int
+      Size in bytes.
+  """
   return t.element_size() * t.nelement()
 
 def th_tensor_list_size(lst):
+  """
+  Compute total size in bytes of a list of tensors without double-counting shared storage.
+
+  Parameters
+  ----------
+  lst : list[torch.Tensor]
+      List of tensors.
+
+  Returns
+  -------
+  int
+      Total size in bytes.
+  """
   _size = th_tensor_size(lst[0])
   for i in range(1, len(lst)):
     is_copy = False
@@ -27,6 +53,24 @@ def th_tensor_list_size(lst):
   return _size
 
 def th_data_size(t):
+  """
+  Compute size in bytes for common torch dataset containers.
+
+  Parameters
+  ----------
+  t : torch.Tensor or list or torch.utils.data.Dataset
+      Data container whose size is computed.
+
+  Returns
+  -------
+  int
+      Size in bytes.
+
+  Raises
+  ------
+  ValueError
+      If the input type is unsupported.
+  """
   if isinstance(t, th.Tensor):
     return t.element_size() * t.nelement()
   elif isinstance(t, list):
@@ -40,6 +84,21 @@ def th_data_size(t):
 
 
 def weights_loader(model, dct_np_weights):
+  """
+  Load numpy-formatted weights into a torch model.
+
+  Parameters
+  ----------
+  model : torch.nn.Module
+      Model instance to load.
+  dct_np_weights : dict[str, np.ndarray]
+      State dict with numpy arrays.
+
+  Returns
+  -------
+  torch.nn.Module
+      Model with loaded weights.
+  """
   # loads a numpy representation of state dict for (de)serialization purposes
   keys = [k for k in dct_np_weights]
   assert isinstance(dct_np_weights[keys[0]], np.ndarray)
@@ -52,6 +111,19 @@ def weights_loader(model, dct_np_weights):
 
 
 def weights_getter(model):
+  """
+  Extract a numpy-formatted state dict from a torch model.
+
+  Parameters
+  ----------
+  model : torch.nn.Module
+      Model to serialize.
+
+  Returns
+  -------
+  dict[str, np.ndarray]
+      State dict with numpy arrays detached from the model.
+  """
   # return a numpy representation of state dict as if was (de)serialized 
   is_training = model.training
   model.eval()
@@ -68,6 +140,28 @@ def weights_getter(model):
 
 
 def aggregate_state_dicts(worker_states, worker_influence, param_keys=None):
+  """
+  Weighted aggregation of serialized model states.
+
+  Parameters
+  ----------
+  worker_states : list[dict[str, np.ndarray]]
+      Serialized states from workers.
+  worker_influence : list[float]
+      Weights summing to 1 for each worker.
+  param_keys : list[str], optional
+      Subset of keys to aggregate; defaults to all.
+
+  Returns
+  -------
+  dict[str, np.ndarray]
+      Aggregated state dict.
+
+  Raises
+  ------
+  AssertionError
+      If weights do not sum to 1 or state dtype unexpected.
+  """
   keys = [x for x in worker_states[0]]
   if param_keys is not None: # if we know the names of the parameters
     keys = [k for k in keys if k in param_keys] # filter only required params
@@ -86,6 +180,23 @@ def aggregate_state_dicts(worker_states, worker_influence, param_keys=None):
 
 
 def th_aggregate(destionation_model, worker_states, weights):
+  """
+  Aggregate numpy worker states into a torch model using weighted average.
+
+  Parameters
+  ----------
+  destionation_model : torch.nn.Module
+      Model to receive aggregated weights.
+  worker_states : list[dict[str, np.ndarray]]
+      Worker weight dictionaries.
+  weights : list[float]
+      Influence weights summing to 1.
+
+  Returns
+  -------
+  torch.nn.Module
+      Model with aggregated weights loaded.
+  """
   # TODO: check aggregation method for BN and similar layers!!!!
   param_keys = [k[0] for k in destionation_model.named_parameters()]
   if not isinstance(worker_states[0][param_keys[0]], np.ndarray):
@@ -100,6 +211,23 @@ def th_aggregate(destionation_model, worker_states, weights):
 
 
 def aggregate_function(original, workers, weights):
+  """
+  Convenience wrapper performing torch aggregation on serialized worker states.
+
+  Parameters
+  ----------
+  original : torch.nn.Module
+      Destination model to load.
+  workers : list[dict[str, np.ndarray]]
+      Worker state dicts.
+  weights : list[float]
+      Aggregation weights summing to 1.
+
+  Returns
+  -------
+  torch.nn.Module
+      Model loaded with aggregated weights.
+  """
   return th_aggregate(
     destionation_model=original, 
     worker_states=workers, 
@@ -110,10 +238,26 @@ def aggregate_function(original, workers, weights):
 
 class SimpleTrainer(EDILBase):
   def __init__(self, **kwargs):
+    """
+    Minimal training helper wrapping a PyTorch training loop.
+
+    Parameters
+    ----------
+    **kwargs
+      Passed to `EDILBase`.
+    """
     super().__init__(**kwargs)
     return
   
   def __call__(self, **kwargs):
+    """
+    Callable alias to `train` for compatibility.
+
+    Parameters
+    ----------
+    **kwargs
+      Forwarded to `train`.
+    """
     self.train(**kwargs)
       
   def train(self, 
@@ -130,6 +274,46 @@ class SimpleTrainer(EDILBase):
             force_gpu=True,
             verbose=None,
             ):
+    """
+    Run a basic supervised training loop with optional validation.
+
+    Parameters
+    ----------
+    model : torch.nn.Module
+      Model to train.
+    train_data : torch.utils.data.Dataset, optional
+      Dataset providing training batches; optional if `x_train`/`y_train` provided.
+    x_train : np.ndarray or torch.Tensor, optional
+      Training features (used with `y_train`).
+    y_train : np.ndarray or torch.Tensor, optional
+      Training labels (used with `x_train`).
+    dev_func : Callable, optional
+      Evaluation function called after each epoch.
+    dev_data : tuple, optional
+      Data passed to `dev_func`.
+    epochs : int, optional
+      Number of epochs.
+    batch_size : int, optional
+      Batch size for DataLoader.
+    loss : {'cce','mse'}, optional
+      Loss function selection.
+    optimizer : {'adam'}, optional
+      Optimizer type.
+    force_gpu : bool, optional
+      Move model to CUDA if available.
+    verbose : bool, optional
+      Override verbosity; defaults to trainer verbosity.
+
+    Returns
+    -------
+    dict
+      Trained model state dict.
+
+    Raises
+    ------
+    ValueError
+      If data or loss/optimizer types are unsupported.
+    """
     assert model is not None
     verbose = self.verbose if verbose is None else verbose
     train_size = None
@@ -224,10 +408,46 @@ class SimpleTrainer(EDILBase):
   
 class SimpleTester(EDILBase):
   def __init__(self, **kwargs):
+    """
+    Simple accuracy tester for classification models.
+
+    Parameters
+    ----------
+    **kwargs
+      Passed to `EDILBase`.
+    """
     super().__init__(**kwargs)
     return
   
   def __call__(self, model, data, verbose=None, method='acc', batch_size=32, test_name='Test'):
+    """
+    Evaluate a model on a dataset using a given metric.
+
+    Parameters
+    ----------
+    model : torch.nn.Module
+      Model to evaluate.
+    data : tuple
+      `(x_test, y_test)` arrays or tensors.
+    verbose : bool, optional
+      Override verbosity; defaults to tester setting.
+    method : {'acc'}, optional
+      Evaluation metric; currently only accuracy.
+    batch_size : int, optional
+      Batch size for inference.
+    test_name : str, optional
+      Label used in logs.
+
+    Returns
+    -------
+    float
+      Evaluation metric value.
+
+    Raises
+    ------
+    ValueError
+      If an unknown method is provided.
+    """
     x_test, y_test = data
     in_training = model.training
     model.eval()
@@ -291,10 +511,24 @@ BASIC_ENCODER = [
 
 class GlobalMaxPool2d(th.nn.Module):
   def __init__(self):
+    """Global max pooling over spatial dimensions."""
     super().__init__()
     return
   
   def forward(self, inputs):
+    """
+    Apply global max pooling across height and width.
+
+    Parameters
+    ----------
+    inputs : torch.Tensor
+      Input tensor of shape (N, C, H, W).
+
+    Returns
+    -------
+    torch.Tensor
+      Tensor of shape (N, C) after pooling.
+    """
     th_x = th.nn.functional.max_pool2d(
       inputs, 
       kernel_size=inputs.size()[2:]
@@ -304,31 +538,96 @@ class GlobalMaxPool2d(th.nn.Module):
   
 class ReshapeLayer(th.nn.Module):
   def __init__(self, shape):
+    """
+    Reshape wrapper to use within Sequential-style modules.
+
+    Parameters
+    ----------
+    shape : tuple
+      Target shape excluding batch dimension.
+    """
     super().__init__()
     self._shape = shape
     return
   
   def __repr__(self):
+    """Return printable representation including target shape."""
     return self.__class__.__name__ + "{}".format(tuple([x for x in self._shape]))
   
   def forward(self, inputs):
+    """
+    Reshape inputs to the configured shape.
+
+    Parameters
+    ----------
+    inputs : torch.Tensor
+      Input tensor.
+
+    Returns
+    -------
+    torch.Tensor
+      Reshaped tensor with batch dimension preserved.
+    """
     return inputs.view(-1, *self._shape)
   
 
 class InputPlaceholder(th.nn.Module):
   def __init__(self, shape):
+    """
+    Identity layer used for shape annotation inside ModuleLists.
+
+    Parameters
+    ----------
+    shape : tuple
+      Expected input shape (not enforced).
+    """
     super().__init__()
     self._shape = shape
     return
   
   def __repr__(self):
+    """Return printable representation including expected input shape."""
     return self.__class__.__name__ + "{}".format(tuple([x for x in self._shape]))
   
   def forward(self, inputs):
+    """
+    Return inputs unchanged.
+
+    Parameters
+    ----------
+    inputs : torch.Tensor
+      Input tensor.
+
+    Returns
+    -------
+    torch.Tensor
+      Same tensor passed through.
+    """
     return inputs
   
   
 def calc_embed_size(h, w, c, root=3, scale=1):
+  """
+  Heuristic to compute embedding size based on input dimensions.
+
+  Parameters
+  ----------
+  h : int
+    Height.
+  w : int
+    Width.
+  c : int
+    Channels.
+  root : int, optional
+    Root used for size scaling.
+  scale : int, optional
+    Additional multiplier.
+
+  Returns
+  -------
+  int
+    Embedding dimensionality rounded to multiple of 4.
+  """
   img_size = h * w * c
   v = int(np.power(img_size, 1/root))
   v = v * scale
@@ -342,6 +641,24 @@ class SimpleImageEncoder(th.nn.Module):
   def __init__(self, h, w, channels,
                root=3, scale=1,
                layers=BASIC_ENCODER):
+    """
+    Lightweight CNN encoder to produce embeddings from images.
+
+    Parameters
+    ----------
+    h : int
+      Image height.
+    w : int
+      Image width.
+    channels : int
+      Number of input channels.
+    root : int, optional
+      Scaling root for embed size heuristic.
+    scale : int, optional
+      Additional embed size multiplier.
+    layers : list[dict], optional
+      Convolutional layer configs (kernel/stride/filters/padding).
+    """
     super().__init__()
     self.hw = (h, w)
     self.layers = th.nn.ModuleList()
@@ -376,6 +693,19 @@ class SimpleImageEncoder(th.nn.Module):
     return
   
   def forward(self, inputs):
+    """
+    Forward pass through the encoder.
+
+    Parameters
+    ----------
+    inputs : torch.Tensor
+      Input images (N, C, H, W).
+
+    Returns
+    -------
+    torch.Tensor
+      Embeddings of shape (N, embed_size).
+    """
     th_x = inputs
     for layer in self.layers:
       th_x = layer(th_x)
@@ -393,6 +723,26 @@ class SimpleImageDecoder(th.nn.Module):
                scale=1,
                layers=BASIC_ENCODER
                ):
+    """
+    Lightweight decoder to reconstruct images from embeddings.
+
+    Parameters
+    ----------
+    h : int
+      Target image height.
+    w : int
+      Target image width.
+    channels : int
+      Number of output channels.
+    embed_size : int, optional
+      Embedding dimensionality; inferred if None.
+    root : int, optional
+      Scaling root for embed size heuristic.
+    scale : int, optional
+      Additional embed size multiplier.
+    layers : list[dict], optional
+      Mirror of encoder layer configs.
+    """
     super().__init__()
     if embed_size is None:
       embed_size = calc_embed_size(
@@ -452,6 +802,19 @@ class SimpleImageDecoder(th.nn.Module):
     return
   
   def forward(self, inputs):
+    """
+    Reconstruct images from embeddings.
+
+    Parameters
+    ----------
+    inputs : torch.Tensor
+      Embeddings of shape (N, embed_size).
+
+    Returns
+    -------
+    torch.Tensor
+      Reconstructed images (N, C, H, W).
+    """
     th_embed = inputs
     th_x = th_embed
     for layer in self.layers:
@@ -471,6 +834,28 @@ class SimpleDomainAutoEncoder(th.nn.Module):
                scale=1,
                layers=BASIC_ENCODER
                ):
+    """
+    Domain-specific autoencoder wrapper with save helpers.
+
+    Parameters
+    ----------
+    h : int
+      Image height.
+    w : int
+      Image width.
+    channels : int
+      Input channels.
+    domain_name : str
+      Label used when saving encoder/decoder weights.
+    save_folder : str, optional
+      Directory for saving weights.
+    root : int, optional
+      Scaling root for embed size heuristic.
+    scale : int, optional
+      Additional embed size multiplier.
+    layers : list[dict], optional
+      Encoder/decoder layer configs.
+    """
     super().__init__()
     
     self.domain_name = domain_name
@@ -493,12 +878,37 @@ class SimpleDomainAutoEncoder(th.nn.Module):
     return
   
   def forward(self, inputs):
+    """
+    Encode then decode inputs.
+
+    Parameters
+    ----------
+    inputs : torch.Tensor
+      Input images.
+
+    Returns
+    -------
+    torch.Tensor
+      Reconstructed images.
+    """
     th_x = self.encoder(inputs)
     th_out = self.decoder(th_x)
     return th_out
   
   
   def save_encoder(self, path=None):
+    """
+    Save encoder weights to disk.
+
+    Parameters
+    ----------
+    path : str, optional
+      Target path; defaults to `<save_folder>/<domain_name>_enc<embed>.pt`.
+
+    Returns
+    -------
+    None
+    """
     if path is None:
       path = os.path.join(
         self.save_folder, 
@@ -516,6 +926,18 @@ class SimpleDomainAutoEncoder(th.nn.Module):
     return
   
   def save_decoder(self, path=None):
+    """
+    Save decoder weights to disk.
+
+    Parameters
+    ----------
+    path : str, optional
+      Target path; defaults to `<save_folder>/<domain_name>_dec<embed>.pt`.
+
+    Returns
+    -------
+    None
+    """
     if path is None:
       path = os.path.join(
         self.save_folder, 

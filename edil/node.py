@@ -16,6 +16,18 @@ from edil.base import EDILBase
 
 class SimpleWorker(EDILBase):
   def __init__(self, node, load, **kwargs):
+    """
+    Lightweight worker wrapper containing node logic and relative load.
+
+    Parameters
+    ----------
+    node : SimpleProcessingNode
+      Node that performs local training.
+    load : float
+      Fraction of total data assigned to this worker (sums to 1 across workers).
+    **kwargs
+      Passed to `EDILBase`.
+    """
     super().__init__(name=node.name, **kwargs)
     self.load = load
     self.node = node
@@ -24,6 +36,16 @@ class SimpleWorker(EDILBase):
 class SimpleProcessingNode(EDILBase):
   
   def __init__(self, name, **kwargs):
+    """
+    Processing node orchestrating distributed training and local computation.
+
+    Parameters
+    ----------
+    name : str
+      Identifier used for logging.
+    **kwargs
+      Passed to `EDILBase`.
+    """
     super().__init__(name=name, **kwargs)
     return
   
@@ -44,61 +66,48 @@ class SimpleProcessingNode(EDILBase):
                         aggregate_fn, # weight/models aggregation
                         ):    
     """
-    The main workhorse function for distributed h-encripted training
+    Run multi-round federated training with encoded inputs and weighted aggregation.
 
     Parameters
     ----------
-    
-    domain_encoder : class
-      encoder that receives ndarray and returns ndarray                        
-    
-    model_class : class
-      class definition of the target model                       
-    
-    model_weights_loader : function 
-      framework aware function for loading weights                        
-      
-    model_weights_getter : function
-      framework function for getting weights                        
-      
-    train_data : tuple of ndarray
-      training data tuple                        
-      
-    dev_data : TYPE
-      dev data tuple                        
-      
-    test_data : TYPE
-      test data tuple                        
-      
+    domain_encoder : Callable
+      Function/model that receives ndarray and returns encoded ndarray.
+    model_class : type
+      Class definition of the target model (instantiated per worker).
+    model_weights_loader : Callable
+      Framework-aware function that loads weights into a model instance.
+    model_weights_getter : Callable
+      Function extracting a serializable weights dict from a model instance.
+    train_data : tuple[np.ndarray, np.ndarray]
+      Training features and labels.
+    dev_data : tuple[np.ndarray, np.ndarray]
+      Validation features and labels.
+    test_data : tuple[np.ndarray, np.ndarray]
+      Test features and labels.
     workers : List[SimpleWorker]
-      list of workers                        
-    
-    rounds : TYPE
-      number of trainin rounds to distribute among workers                        
-    
-    epochs_per_round : TYPE
-      DESCRIPTION.
-    
-    train_class : TYPE
-      class with __call__ or function name                        
-      
-    test_class : TYPE
-      class with __call__ or function name                        
-      
-    aggregate_fn : TYPE
-      weight/models aggregation
-
-    Raises
-    ------
-    ValueError
-      DESCRIPTION.
+      Workers participating in each round; their `load` values must sum to 1.
+    rounds : int
+      Number of federated rounds.
+    epochs_per_round : int
+      Epochs each worker trains per round.
+    train_class : type
+      Trainer class implementing `__call__`/`train`.
+    test_class : type or None
+      Tester class implementing `__call__`; if None, skips testing.
+    aggregate_fn : Callable
+      Function combining worker weight dicts into a global model.
 
     Returns
     -------
-    model : TYPE
-      the trained model instance created with model_class and loaded with
-      FL-based weights from all workers
+    model
+      Trained model instance (model_class) loaded with aggregated weights.
 
+    Raises
+    ------
+    AssertionError
+      If incorrect class types are provided or worker types mismatch.
+    ValueError
+      If worker loads do not sum to 1.
     """
     # Distributed and semi-decentralized training
     self.P("Local node '{}' distributing EFL job".format(self.name))
@@ -245,6 +254,42 @@ class SimpleProcessingNode(EDILBase):
                   dev_class, 
                   epochs, 
                   batch_size=32):
+    """
+    Perform local training on a data shard and return updated weights.
+
+    Parameters
+    ----------
+    model_class : type
+      Model class to instantiate.
+    model_weights : dict
+      Serialized weights to load before training.
+    model_weights_loader : Callable
+      Function to load serialized weights into a model instance.
+    model_weights_getter : Callable
+      Function to extract serialized weights from a trained model.
+    train_data : tuple[np.ndarray, np.ndarray]
+      Training features and labels for this worker.
+    dev_data : tuple[np.ndarray, np.ndarray]
+      Validation features and labels.
+    train_class : type
+      Trainer class implementing `__call__`.
+    dev_class : type
+      Tester class implementing `__call__`.
+    epochs : int
+      Number of training epochs.
+    batch_size : int, optional
+      Mini-batch size.
+
+    Returns
+    -------
+    dict
+      Serialized weights after local training.
+
+    Raises
+    ------
+    AssertionError
+      If trainer/tester classes are not class types.
+    """
     assert inspect.isclass(train_class)
     assert inspect.isclass(dev_class)
     x_train, y_train = train_data

@@ -8,6 +8,26 @@
 import numpy as np
 
 def sample_shards(samples_per_batch, n_obs=100):
+  """
+  Sample non-overlapping index shards according to batch sizes or percentages.
+
+  Parameters
+  ----------
+  samples_per_batch : list[float] or list[int]
+      Absolute counts per batch or percentages summing to 1.0.
+  n_obs : int, optional
+      Total number of observations to sample from.
+
+  Returns
+  -------
+  list[np.ndarray]
+      List of sorted index arrays (int32) for each batch.
+
+  Raises
+  ------
+  AssertionError
+      If percentages do not sum to 1.0 when provided.
+  """
   results = []
   np_all = np.arange(n_obs)
   np_samples = np.array(samples_per_batch)

@@ -17,7 +17,7 @@ Algorithm:
 import numpy as np
 from edil.node import SimpleWorker, SimpleProcessingNode
 
-from edil.experiments.data_utils import get_mnist_data
+from utils.data_utils import get_mnist_data
 
 from edil.th_utils import (
   SimpleTrainer, SimpleTester, SimpleImageEncoder, 
